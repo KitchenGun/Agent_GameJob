@@ -1,0 +1,106 @@
+import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
+from config import Config
+
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
+
+class SheetsManager:
+    def __init__(self):
+        creds = Credentials.from_service_account_file(
+            Config.GOOGLE_CREDENTIALS_PATH, scopes=SCOPES
+        )
+        self.client = gspread.authorize(creds)
+        self.spreadsheet = self.client.open(Config.SPREADSHEET_NAME)
+
+    def get_or_create_worksheet(self, title, headers=None):
+        """워크시트가 없으면 생성, 있으면 반환"""
+        try:
+            ws = self.spreadsheet.worksheet(title)
+        except gspread.WorksheetNotFound:
+            ws = self.spreadsheet.add_worksheet(title=title, rows=1000, cols=20)
+            if headers:
+                ws.update("A1", [headers])
+        return ws
+
+    def append_jobs(self, jobs: list[dict]):
+        """채용공고 데이터를 시트에 추가 (중복 제거)"""
+        ws = self.get_or_create_worksheet(
+            "채용공고_로우데이터",
+            headers=[
+                "공고ID", "사이트", "회사명", "제목", "직무",
+                "경력요건", "기술스택", "학력", "근무지역",
+                "급여", "마감일", "공고URL", "수집일시", "상태"
+            ],
+        )
+        existing = ws.get_all_records()
+        existing_ids = {row.get("공고ID") for row in existing}
+
+        new_jobs = [j for j in jobs if j.get("job_id") not in existing_ids]
+        if not new_jobs:
+            print("새로운 공고가 없습니다.")
+            return 0
+
+        rows = []
+        for j in new_jobs:
+            rows.append([
+                j.get("job_id", ""),
+                j.get("source", ""),
+                j.get("company", ""),
+                j.get("title", ""),
+                j.get("position", ""),
+                j.get("experience", ""),
+                j.get("skills", ""),
+                j.get("education", ""),
+                j.get("location", ""),
+                j.get("salary", ""),
+                j.get("deadline", ""),
+                j.get("url", ""),
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "신규",
+            ])
+
+        ws.append_rows(rows)
+        print(f"{len(rows)}건의 신규 공고 추가 완료")
+        return len(rows)
+
+    def save_resume_data(self, resume_data: dict):
+        """이력서 로우데이터를 별도 시트에 저장"""
+        ws = self.get_or_create_worksheet(
+            "이력서_로우데이터",
+            headers=["항목", "내용", "업데이트일시"],
+        )
+        ws.clear()
+        ws.update("A1", [["항목", "내용", "업데이트일시"]])
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        rows = []
+        for key, value in resume_data.items():
+            if isinstance(value, list):
+                value = ", ".join(value)
+            rows.append([key, str(value), now])
+
+        ws.append_rows(rows)
+        print("이력서 데이터 저장 완료")
+
+    def get_all_jobs(self):
+        """모든 채용공고 로우데이터 반환"""
+        ws = self.get_or_create_worksheet("채용공고_로우데이터")
+        return ws.get_all_records()
+
+    def get_resume_data(self):
+        """이력서 로우데이터 반환"""
+        ws = self.get_or_create_worksheet("이력서_로우데이터")
+        records = ws.get_all_records()
+        return {row["항목"]: row["내용"] for row in records}
+
+    def update_job_status(self, job_id: str, status: str):
+        """공고 상태 업데이트 (신규/매칭됨/알림완료/만료)"""
+        ws = self.spreadsheet.worksheet("채용공고_로우데이터")
+        cell = ws.find(job_id, in_column=1)
+        if cell:
+            ws.update_cell(cell.row, 14, status)  # 14번째 열 = 상태
