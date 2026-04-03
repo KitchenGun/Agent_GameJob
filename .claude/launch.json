@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Game Job Agent (전체 파이프라인)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["main.py"],
+      "port": null
+    },
+    {
+      "name": "Game Job Agent (크롤링만)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["main.py", "--crawl-only"],
+      "port": null
+    },
+    {
+      "name": "Game Job Agent (매칭만)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["main.py", "--match-only"],
+      "port": null
+    },
+    {
+      "name": "Game Job Agent (이력서 파싱)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["main.py", "--parse-resume"],
+      "port": null
+    }
+  ]
+}

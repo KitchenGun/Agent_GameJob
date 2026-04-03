@@ -185,3 +185,6 @@ data/credentials/service_account.json
 
 # 로그 파일 (배치 실행 시 생성)
 logs/*.log
+
+# Claude Code 로컬 설정
+.claude/settings.local.json
