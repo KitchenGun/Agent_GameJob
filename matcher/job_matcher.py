@@ -54,13 +54,21 @@ _UNREAL_KEYWORDS = ["unreal", "ue4", "ue5", "uefn", "언리얼"]
 # Unity 관련 키워드
 _UNITY_KEYWORDS  = ["unity", "유니티"]
 
+# 게임 업계 공고 판별 키워드
+_GAME_JOB_KEYWORDS = [
+    "게임", "game", "mmorpg", "rpg", "fps", "moba", "배틀", "battle",
+    "클라이언트", "언리얼", "unreal", "unity", "유니티", "콘솔", "console",
+    "온라인게임", "모바일게임", "pc게임",
+]
+
 # 점수 가중치
 _WEIGHTS = {
-    "기술스택":    0.30,
+    "기술스택":    0.25,
     "Unreal보너스": 0.10,
+    "게임업계":    0.10,
     "프로젝트경험": 0.15,
     "경력조건":    0.15,
-    "내용유사도":  0.15,
+    "내용유사도":  0.10,
     "직무키워드":  0.15,
 }
 
@@ -195,7 +203,16 @@ class JobMatcher:
             unreal_score = 0.3
         breakdown["Unreal보너스"] = round(unreal_score, 3)
 
-        # ③ 프로젝트 경험 매칭 (15%) ──────────────────
+        # ③ 게임업계 공고 여부 (10%) ─────────────────
+        game_hits = [kw for kw in _GAME_JOB_KEYWORDS if kw in job_text_full]
+        game_score = min(len(game_hits) / 3, 1.0)
+        breakdown["게임업계"] = round(game_score, 3)
+        if game_score >= 0.67:
+            reasons.append(f"🕹️ 게임업계 공고 확인: {', '.join(game_hits[:4])}")
+        elif game_score > 0:
+            reasons.append(f"🕹️ 게임 관련 키워드: {', '.join(game_hits[:3])}")
+
+        # ④ 프로젝트 경험 매칭 (15%) ──────────────────
         proj_score, proj_reasons = self._match_projects(job_text_full)
         breakdown["프로젝트경험"] = round(proj_score, 3)
         reasons.extend(proj_reasons)
