@@ -16,6 +16,12 @@ class JobKoreaCrawler(BaseCrawler):
     FILTER_KEYWORDS = ["게임 클라이언트 프로그래머", "언리얼 프로그래머", "Unity 프로그래머"]
     FILTER_LOCAL    = "I000,B000"  # 서울, 경기 (jobkorea 포맷)
 
+    # 게임 관련 공고 판별 키워드 (하나라도 제목에 포함 시 게임 공고로 판단)
+    GAME_TITLE_KEYWORDS = [
+        "게임", "game", "클라이언트", "client", "언리얼", "unreal", "unity", "유니티",
+        "엔진", "engine", "그래픽스", "렌더링", "rendering", "콘텐츠",
+    ]
+
     def crawl(self, keywords: list[str], max_pages: int = 5) -> list[dict]:
         results = []
         seen_ids = set()
@@ -130,9 +136,16 @@ class JobKoreaCrawler(BaseCrawler):
                         elif not job.skills:
                             job.skills = text
 
-                if job.title:
+                if job.title and self._is_game_job(job.title):
                     jobs.append(job)
+                elif job.title:
+                    pass  # 게임 무관 공고 제외
             except Exception as e:
                 print(f"[잡코리아] 파싱 에러: {e}")
 
         return jobs
+
+    def _is_game_job(self, title: str) -> bool:
+        """제목 기준으로 게임 관련 공고 여부 판별"""
+        title_lower = title.lower()
+        return any(kw in title_lower for kw in self.GAME_TITLE_KEYWORDS)
