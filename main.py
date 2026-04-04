@@ -86,11 +86,27 @@ def run_parse_resume(sheets: SheetsManager, file_path: str = None):
         print("파싱된 이력서 데이터 없음")
 
 
+# Unity 전용 공고 판별 키워드 (Unreal 없이 Unity만 있으면 제외)
+_UNITY_ONLY_KEYWORDS = ["unity", "유니티", "c#"]
+_UNREAL_KEYWORDS     = ["unreal", "ue4", "ue5", "uefn", "언리얼"]
+
+
+def _is_unity_only(job: dict) -> bool:
+    """Unity 전용 공고 여부 판별 (Unreal 키워드 없이 Unity 키워드만 있으면 True)"""
+    text = " ".join(
+        str(v) for v in job.values() if v and str(v).strip()
+    ).lower()
+    has_unreal = any(kw in text for kw in _UNREAL_KEYWORDS)
+    has_unity  = any(kw in text for kw in _UNITY_ONLY_KEYWORDS)
+    return has_unity and not has_unreal
+
+
 def run_match(sheets: SheetsManager, jobs: list[dict] = None):
     """
     매칭 및 알림 실행.
     jobs 인자가 있으면 해당 공고로 매칭 (Full pipeline용).
     없으면 시트에서 '신규' 상태 공고를 읽어 매칭 (--match-only용).
+    Full pipeline은 threshold 무관하게 상위 결과를 항상 Discord 전송.
     """
     print(f"\n{'='*50}")
     print(f"매칭 엔진 실행")
@@ -103,37 +119,42 @@ def run_match(sheets: SheetsManager, jobs: list[dict] = None):
 
     if jobs is not None:
         # Full pipeline: 크롤링된 공고 전체 대상
-        target_jobs = jobs
-        print(f"  크롤링 공고 {len(target_jobs)}건 대상 매칭")
+        before = len(jobs)
+        target_jobs = [j for j in jobs if not _is_unity_only(j)]
+        print(f"  크롤링 공고 {before}건 → Unity 전용 제외 후 {len(target_jobs)}건 매칭")
     else:
         # --match-only: 시트의 신규 공고만 대상
         all_sheet_jobs = sheets.get_all_jobs()
         if not all_sheet_jobs:
             print("채용공고 데이터가 없습니다. 먼저 크롤링을 실행하세요.")
             return
-        target_jobs = [j for j in all_sheet_jobs if j.get("상태") == "신규"]
-        print(f"  전체 공고: {len(all_sheet_jobs)}건, 신규 공고: {len(target_jobs)}건")
+        before = len(all_sheet_jobs)
+        target_jobs = [j for j in all_sheet_jobs if not _is_unity_only(j)]
+        print(f"  전체 공고: {before}건 → Unity 제외 후 {len(target_jobs)}건")
 
     if not target_jobs:
         print("매칭할 공고가 없습니다.")
         return
 
     matcher = JobMatcher()
-    matches = matcher.match(resume_data, target_jobs)
-    print(f"  매칭 결과: {len(matches)}건 (threshold: {Config.MATCH_THRESHOLD})")
 
-    if matches:
-        notifier = DiscordNotifier()
-        notifier.send_matches(matches)
-        print("Discord 알림 전송 완료")
-
-        job_ids = [
-            match["job"].get("공고ID") or match["job"].get("job_id", "")
-            for match in matches
-        ]
-        sheets.bulk_update_job_status([jid for jid in job_ids if jid], "알림완료")
+    if jobs is not None:
+        # Full pipeline: threshold=0으로 전체 점수 산출 후 상위 결과 전송
+        matches = matcher.match_all(resume_data, target_jobs)
+        print(f"  전체 점수 산출: {len(matches)}건 (상위 순 정렬)")
     else:
-        print("매칭되는 공고가 없습니다.")
+        matches = matcher.match(resume_data, target_jobs)
+        print(f"  매칭 결과: {len(matches)}건 (threshold: {Config.MATCH_THRESHOLD})")
+
+    notifier = DiscordNotifier()
+    notifier.send_matches(matches)
+    print("Discord 알림 전송 완료")
+
+    job_ids = [
+        match["job"].get("공고ID") or match["job"].get("job_id", "")
+        for match in matches
+    ]
+    sheets.bulk_update_job_status([jid for jid in job_ids if jid], "알림완료")
 
 
 def main():

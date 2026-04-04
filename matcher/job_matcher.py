@@ -93,6 +93,24 @@ class JobMatcher:
             {skill for group in _USER_SKILLS.values() for skill in group}
         )
 
+    def match_all(self, resume_data: dict, jobs: list[dict]) -> list[dict]:
+        """threshold 없이 모든 공고 점수 산출 후 내림차순 반환 (Full pipeline용)"""
+        resume_text  = self._build_resume_text(resume_data)
+        user_skills  = self._extract_resume_skills(resume_data)
+        results = []
+        for job in jobs:
+            score, breakdown, reasons = self._calculate_score(
+                resume_data, job, resume_text, user_skills
+            )
+            results.append({
+                "job":       job,
+                "score":     round(score, 3),
+                "breakdown": breakdown,
+                "reasons":   reasons,
+            })
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results
+
     def match(self, resume_data: dict, jobs: list[dict]) -> list[dict]:
         """
         이력서 데이터와 채용공고 리스트를 비교하여
