@@ -91,7 +91,8 @@ class JobMatcher:
         )
 
     def match_all(self, resume_data: dict, jobs: list[dict]) -> list[dict]:
-        """threshold 없이 모든 공고 점수 산출 후 내림차순 반환 (Full pipeline용)"""
+        """threshold 없이 모든 공고 점수 산출 후 내림차순 반환 (Full pipeline용)
+        단, 경력조건 0점 공고(경력 2년 이상 초과)는 제외"""
         resume_text  = self._build_resume_text(resume_data)
         user_skills  = self._extract_resume_skills(resume_data)
         results = []
@@ -99,6 +100,9 @@ class JobMatcher:
             score, breakdown, reasons = self._calculate_score(
                 resume_data, job, resume_text, user_skills
             )
+            # 경력 조건이 완전 미달인 공고 제외
+            if breakdown.get("경력조건", 1.0) == 0.0:
+                continue
             results.append({
                 "job":       job,
                 "score":     round(score, 3),
@@ -326,24 +330,33 @@ class JobMatcher:
 
     def _match_experience(self, resume_exp: str, job_exp: str) -> float:
         """경력 조건 매칭 점수"""
+        # 사용자 실제 경력: resume_data에서 파싱 안 되면 3년으로 고정
+        _USER_YEARS = 3
+
         if not job_exp:
-            return 0.5
-        if "신입" in job_exp and ("신입" in resume_exp or not resume_exp):
-            return 1.0
+            return 0.7  # 정보 없으면 중립보다 약간 낮게
+
         if "무관" in job_exp:
             return 1.0
 
-        resume_years = re.findall(r"(\d+)", resume_exp)
-        job_years    = re.findall(r"(\d+)", job_exp)
+        if "신입" in job_exp:
+            # 신입 공고는 경력자도 지원 가능하므로 허용
+            return 0.8
 
-        if resume_years and job_years:
-            r = int(resume_years[0])
-            j = int(job_years[0])
-            if r >= j:
-                return 1.0
-            elif r >= j - 1:
-                return 0.7
-            else:
-                return 0.3
+        job_years = re.findall(r"(\d+)", job_exp)
+        if not job_years:
+            return 0.7
 
-        return 0.5
+        r_years = re.findall(r"(\d+)", resume_exp)
+        r = int(r_years[0]) if r_years else _USER_YEARS
+        j = int(job_years[0])
+
+        if r >= j:
+            return 1.0
+        elif r >= j - 1:
+            return 0.6
+        elif r >= j - 2:
+            return 0.3
+        else:
+            # 경력 2년 이상 초과 요구 → 사실상 불가 → 0점 (필터링됨)
+            return 0.0
