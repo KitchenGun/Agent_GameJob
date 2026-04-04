@@ -182,9 +182,17 @@ cython_debug/
 
 # 프로젝트 민감 파일
 data/credentials/service_account.json
+data/resume/
+data/discord_message_ids.json
 
 # 로그 파일 (배치 실행 시 생성)
 logs/*.log
 
 # Claude Code 로컬 설정
 .claude/settings.local.json
+
+# 크롤링 디버그 HTML 파일
+*_debug.html
+*_list.html
+*_recruit.html
+*_search.html
