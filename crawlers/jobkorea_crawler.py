@@ -1,7 +1,9 @@
 from playwright.sync_api import sync_playwright
 from crawlers.base_crawler import BaseCrawler, JobPosting
+from crawlers.detail_crawler import crawl_detail
 from bs4 import BeautifulSoup
 import urllib.parse
+import re
 
 
 class JobKoreaCrawler(BaseCrawler):
@@ -10,39 +12,68 @@ class JobKoreaCrawler(BaseCrawler):
     BASE_URL = "https://www.jobkorea.co.kr"
     SOURCE = "잡코리아"
 
+    # 필터 조건 (서버 프로그래머 제외)
+    FILTER_KEYWORDS = ["게임 클라이언트 프로그래머", "언리얼 프로그래머", "Unity 프로그래머"]
+    FILTER_LOCAL    = "I000,B000"  # 서울, 경기 (jobkorea 포맷)
+
     def crawl(self, keywords: list[str], max_pages: int = 5) -> list[dict]:
         results = []
+        seen_ids = set()
 
         with sync_playwright() as p:
             browser, context = self._create_browser_context(p)
             page = context.new_page()
 
-            for keyword in keywords:
+            # 사용자 지정 keywords 대신 필터 조건에 맞는 키워드 사용
+            search_keywords = self.FILTER_KEYWORDS
+
+            for keyword in search_keywords:
                 try:
                     encoded = urllib.parse.quote(keyword)
+                    # 서울(I000), 경기(B000) 지역 필터 추가
                     search_url = (
-                        f"{self.BASE_URL}/Search/?stext={encoded}&tabType=recruit"
+                        f"{self.BASE_URL}/Search/?stext={encoded}"
+                        f"&tabType=recruit&local=I000&local=B000"
                     )
-                    page.goto(search_url, wait_until="networkidle")
-                    self._random_delay(2, 4)
+                    page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+                    self._random_delay(3, 5)
 
                     for page_num in range(1, max_pages + 1):
                         html = page.content()
                         jobs = self._parse_list_page(html)
-                        results.extend(jobs)
+                        for job in jobs:
+                            if job.job_id not in seen_ids:
+                                seen_ids.add(job.job_id)
+                                results.append(job)
 
+                        # 다음 페이지 버튼
                         next_btn = page.query_selector(
-                            f".tplPagination a[data-page='{page_num + 1}']"
+                            f"a[href*='Page={page_num + 1}'], button[data-page='{page_num + 1}']"
                         )
                         if next_btn:
                             next_btn.click()
-                            page.wait_for_load_state("networkidle")
+                            page.wait_for_load_state("domcontentloaded")
                             self._random_delay(2, 4)
                         else:
                             break
 
                 except Exception as e:
                     print(f"[잡코리아] '{keyword}' 크롤링 에러: {e}")
+
+            # 상세 페이지 크롤링 (기술스택 + OCR + 자사사이트)
+            new_results = [j for j in results if not j.skills]
+            if new_results:
+                print(f"  [잡코리아] 상세 크롤링 시작 ({len(new_results)}건)...")
+                for i, job in enumerate(new_results):
+                    try:
+                        detail = crawl_detail(page, job.url, "jobkorea.co.kr")
+                        if detail["skills_text"]:
+                            job.skills = detail["skills_text"]
+                        if detail["external_url"]:
+                            print(f"    자사사이트 발견: {detail['external_url'][:60]}")
+                    except Exception as e:
+                        print(f"    상세 실패 [{job.job_id}]: {e}")
+                    self._random_delay(0.5, 1.5)
 
             browser.close()
 
@@ -53,36 +84,51 @@ class JobKoreaCrawler(BaseCrawler):
         soup = BeautifulSoup(html, "lxml")
         jobs = []
 
-        for item in soup.select(".list-default li, .recruit-list-item"):
+        # GI_Read 링크를 포함한 공고 컨테이너 탐색
+        gi_links = soup.find_all("a", href=re.compile(r"/Recruit/GI_Read/\d+"))
+        seen_hrefs = set()
+
+        for link in gi_links:
+            href = link.get("href", "")
+            # 제목 링크만 처리 (텍스트가 있는 링크)
+            title_text = link.get_text(strip=True)
+            if not title_text or href in seen_hrefs:
+                continue
+            seen_hrefs.add(href)
+
             try:
                 job = JobPosting(source=self.SOURCE)
+                job.title = title_text
 
-                company_el = item.select_one(".name a, .corp-name a")
-                job.company = company_el.get_text(strip=True) if company_el else ""
+                # URL 및 Job ID
+                job.url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
+                gno_match = re.search(r"/GI_Read/(\d+)", href)
+                job.job_id = f"jobkorea_{gno_match.group(1)}" if gno_match else f"jobkorea_{hash(href)}"
 
-                title_el = item.select_one(".title a, .job-title a")
-                if title_el:
-                    job.title = title_el.get_text(strip=True)
-                    href = title_el.get("href", "")
-                    job.url = (
-                        f"{self.BASE_URL}{href}" if not href.startswith("http")
-                        else href
-                    )
-                    gno = href.split("GNo=")[-1].split("&")[0] if "GNo=" in href else str(hash(href))
-                    job.job_id = f"jobkorea_{gno}"
+                # 부모 컨테이너에서 회사명, 조건 등 추출
+                container = link.find_parent("div", class_=re.compile(r"p-7|gap-5"))
+                if not container:
+                    container = link.find_parent("div")
 
-                info_els = item.select(".recruit-info span, .condition span")
-                for el in info_els:
-                    text = el.get_text(strip=True)
-                    if "경력" in text or "신입" in text:
-                        job.experience = text
-                    elif "학력" in text or "대졸" in text:
-                        job.education = text
-                    elif any(loc in text for loc in ["서울", "경기", "부산", "판교", "성남"]):
-                        job.location = text
+                if container:
+                    # 회사명: 두 번째 링크의 텍스트
+                    all_links = container.find_all("a", href=re.compile(r"/Recruit/GI_Read/"))
+                    for al in all_links:
+                        text = al.get_text(strip=True)
+                        if text and text != job.title:
+                            job.company = text
+                            break
 
-                date_el = item.select_one(".date, .deadline")
-                job.deadline = date_el.get_text(strip=True) if date_el else ""
+                    # 칩 정보 (지역, 경력, 스킬 등)
+                    chips = container.find_all("span", class_=re.compile(r"text-typo-b4"))
+                    chip_texts = [c.get_text(strip=True) for c in chips if c.get_text(strip=True)]
+                    for text in chip_texts:
+                        if any(loc in text for loc in ["서울", "경기", "부산", "대전", "인천", "판교", "성남", "수원"]):
+                            job.location = text
+                        elif "경력" in text or "신입" in text or "무관" in text:
+                            job.experience = text
+                        elif not job.skills:
+                            job.skills = text
 
                 if job.title:
                     jobs.append(job)
