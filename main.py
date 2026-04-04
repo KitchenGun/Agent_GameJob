@@ -14,7 +14,6 @@ from datetime import datetime
 from config import Config
 from sheets.sheets_manager import SheetsManager
 from crawlers.gamejob_crawler import GameJobCrawler
-from crawlers.saramin_crawler import SaraminCrawler
 from crawlers.jobkorea_crawler import JobKoreaCrawler
 from parsers.resume_parser import ResumeParser
 from matcher.job_matcher import JobMatcher
@@ -29,7 +28,7 @@ def run_crawl(sheets: SheetsManager) -> int:
 
     all_jobs = []
 
-    print("\n[1/3] 게임잡 크롤링 중...")
+    print("\n[1/2] 게임잡 크롤링 중...")
     try:
         gamejob = GameJobCrawler()
         jobs = gamejob.crawl(Config.SEARCH_KEYWORDS, Config.MAX_PAGES_PER_SITE)
@@ -38,16 +37,7 @@ def run_crawl(sheets: SheetsManager) -> int:
     except Exception as e:
         print(f"  → 게임잡 크롤링 실패: {e}")
 
-    print("\n[2/3] 사람인 크롤링 중...")
-    try:
-        saramin = SaraminCrawler()
-        jobs = saramin.crawl(Config.SEARCH_KEYWORDS, Config.MAX_PAGES_PER_SITE)
-        all_jobs.extend(jobs)
-        print(f"  → {len(jobs)}건 수집")
-    except Exception as e:
-        print(f"  → 사람인 크롤링 실패: {e}")
-
-    print("\n[3/3] 잡코리아 크롤링 중...")
+    print("\n[2/2] 잡코리아 크롤링 중...")
     try:
         jobkorea = JobKoreaCrawler()
         jobs = jobkorea.crawl(Config.SEARCH_KEYWORDS, Config.MAX_PAGES_PER_SITE)
@@ -128,10 +118,11 @@ def run_match(sheets: SheetsManager):
         notifier.send_matches(matches)
         print("Discord 알림 전송 완료")
 
-        for match in matches:
-            job_id = match["job"].get("공고ID", "")
-            if job_id:
-                sheets.update_job_status(job_id, "알림완료")
+        job_ids = [
+            match["job"].get("공고ID") or match["job"].get("job_id", "")
+            for match in matches
+        ]
+        sheets.bulk_update_job_status([jid for jid in job_ids if jid], "알림완료")
     else:
         print("매칭되는 공고가 없습니다.")
 
