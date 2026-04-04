@@ -1,6 +1,4 @@
 import re
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 from config import Config
 
 
@@ -61,15 +59,14 @@ _GAME_JOB_KEYWORDS = [
     "온라인게임", "모바일게임", "pc게임",
 ]
 
-# 점수 가중치
+# 점수 가중치 (우선순위 순: 기술스택 > 경력조건 > 직무키워드 > Unreal보너스 > 프로젝트경험 > 게임업계)
 _WEIGHTS = {
-    "기술스택":    0.25,
+    "기술스택":    0.30,
+    "경력조건":    0.25,
+    "직무키워드":  0.20,
     "Unreal보너스": 0.10,
-    "게임업계":    0.10,
-    "프로젝트경험": 0.15,
-    "경력조건":    0.15,
-    "내용유사도":  0.10,
-    "직무키워드":  0.15,
+    "프로젝트경험": 0.10,
+    "게임업계":    0.05,
 }
 
 # 공고에서 탐지할 기술 키워드 목록 (요건 비교용)
@@ -244,19 +241,7 @@ class JobMatcher:
         elif exp_score < 0.5:
             reasons.append(f"⚠️ 경력 미달 가능성: 보유 {r_yr_label} → 요구 {job_exp_str}")
 
-        # ⑤ TF-IDF 코사인 유사도 (15%) ───────────────
-        job_text_raw = " ".join(str(v) for v in job.values() if v and str(v).strip())
-        try:
-            vec = TfidfVectorizer()
-            mat = vec.fit_transform([resume_text, job_text_raw])
-            tfidf_score = float(cosine_similarity(mat[0:1], mat[1:2])[0][0])
-        except Exception:
-            tfidf_score = 0.0
-        breakdown["내용유사도"] = round(tfidf_score, 3)
-        if tfidf_score > 0.3:
-            reasons.append(f"📄 전체 내용 유사도: {tfidf_score:.0%}")
-
-        # ⑥ 직무 키워드 매칭 (15%) ───────────────────
+        # ⑤ 직무 키워드 매칭 (20%) ───────────────────
         pos_keywords = ["게임", "프로그래머", "개발자", "클라이언트", "엔진", "언리얼", "unity", "유니티"]
         title_hits = [kw for kw in pos_keywords if kw in job_title_text]
         title_score = min(len(title_hits) / 3, 1.0)
