@@ -37,7 +37,7 @@ class SheetsManager:
                 "급여", "마감일", "공고URL", "수집일시", "상태"
             ],
         )
-        existing = ws.get_all_records()
+        existing = self._ws_to_records(ws)
         existing_ids = {row.get("공고ID") for row in existing}
 
         new_jobs = [j for j in jobs if j.get("job_id") not in existing_ids]
@@ -87,20 +87,50 @@ class SheetsManager:
         ws.append_rows(rows)
         print("이력서 데이터 저장 완료")
 
+    def _ws_to_records(self, ws) -> list[dict]:
+        """워크시트의 모든 값을 헤더 기반 dict 리스트로 변환"""
+        values = ws.get_all_values()
+        if not values:
+            return []
+        headers = values[0]
+        return [
+            {headers[i]: row[i] if i < len(row) else ""
+             for i in range(len(headers)) if headers[i]}
+            for row in values[1:]
+            if any(row)
+        ]
+
     def get_all_jobs(self):
         """모든 채용공고 로우데이터 반환"""
         ws = self.get_or_create_worksheet("채용공고_로우데이터")
-        return ws.get_all_records()
+        return self._ws_to_records(ws)
 
     def get_resume_data(self):
         """이력서 로우데이터 반환"""
         ws = self.get_or_create_worksheet("이력서_로우데이터")
-        records = ws.get_all_records()
-        return {row["항목"]: row["내용"] for row in records}
+        records = self._ws_to_records(ws)
+        return {row["항목"]: row["내용"] for row in records if "항목" in row}
 
     def update_job_status(self, job_id: str, status: str):
         """공고 상태 업데이트 (신규/매칭됨/알림완료/만료)"""
+        self.bulk_update_job_status([job_id], status)
+
+    def bulk_update_job_status(self, job_ids: list[str], status: str):
+        """공고 상태 일괄 업데이트"""
+        if not job_ids:
+            return
         ws = self.spreadsheet.worksheet("채용공고_로우데이터")
-        cell = ws.find(job_id, in_column=1)
-        if cell:
-            ws.update_cell(cell.row, 14, status)  # 14번째 열 = 상태
+        all_ids = ws.col_values(1)  # A열 전체 (job_id 컬럼)
+        updates = []
+        for job_id in job_ids:
+            try:
+                row = all_ids.index(job_id) + 1  # 1-based
+                updates.append({
+                    "range": f"N{row}",
+                    "values": [[status]],
+                })
+            except ValueError:
+                pass
+        if updates:
+            ws.batch_update(updates)
+            print(f"  상태 업데이트: {len(updates)}건 → '{status}'")
