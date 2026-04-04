@@ -139,9 +139,10 @@ def run_match(sheets: SheetsManager, jobs: list[dict] = None):
     matcher = JobMatcher()
 
     if jobs is not None:
-        # Full pipeline: threshold=0으로 전체 점수 산출 후 상위 결과 전송
-        matches = matcher.match_all(resume_data, target_jobs)
-        print(f"  전체 점수 산출: {len(matches)}건 (상위 순 정렬)")
+        # Full pipeline: threshold=0으로 전체 점수 산출 후 상위 30건 전송
+        all_matches = matcher.match_all(resume_data, target_jobs)
+        matches = all_matches[:30]
+        print(f"  전체 점수 산출: {len(all_matches)}건 → 상위 {len(matches)}건 Discord 전송")
     else:
         matches = matcher.match(resume_data, target_jobs)
         print(f"  매칭 결과: {len(matches)}건 (threshold: {Config.MATCH_THRESHOLD})")
