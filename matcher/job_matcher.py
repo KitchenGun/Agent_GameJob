@@ -191,14 +191,11 @@ class JobMatcher:
         is_unreal_job = any(kw in job_text_full for kw in _UNREAL_KEYWORDS)
         is_unity_job  = any(kw in job_text_full for kw in _UNITY_KEYWORDS)
 
-        if is_unreal_job and not is_unity_job:
+        if is_unreal_job:
             unreal_score = 1.0
-            reasons.append("🎮 Unreal 전용 공고 — Unreal 우선 매칭 적용")
-        elif is_unreal_job:
-            unreal_score = 0.7
-            reasons.append("🎮 Unreal/Unity 복합 공고")
+            reasons.append("🎮 Unreal 공고 — Unreal 우선 매칭 적용")
         else:
-            unreal_score = 0.0  # Unity 전용 또는 무관 공고 — Unreal 보너스 없음
+            unreal_score = 0.0
         breakdown["Unreal보너스"] = round(unreal_score, 3)
 
         # ③ 게임업계 공고 여부 (10%) ─────────────────
