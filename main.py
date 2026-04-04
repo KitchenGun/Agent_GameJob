@@ -4,7 +4,7 @@
 사용법:
     python main.py                    # 전체 파이프라인 실행
     python main.py --crawl-only       # 크롤링만 실행
-    python main.py --match-only       # 매칭만 실행
+    python main.py --match-only       # 매칭만 실행 (시트의 신규 공고 대상)
     python main.py --parse-resume     # 이력서 파싱만 실행
 """
 
@@ -20,8 +20,8 @@ from matcher.job_matcher import JobMatcher
 from notifier.discord_notifier import DiscordNotifier
 
 
-def run_crawl(sheets: SheetsManager) -> int:
-    """크롤링 실행"""
+def run_crawl(sheets: SheetsManager) -> list[dict]:
+    """크롤링 실행. 수집된 전체 공고 리스트 반환."""
     print(f"\n{'='*50}")
     print(f"[{datetime.now()}] 크롤링 시작")
     print(f"{'='*50}")
@@ -48,11 +48,11 @@ def run_crawl(sheets: SheetsManager) -> int:
 
     if all_jobs:
         new_count = sheets.append_jobs(all_jobs)
-        print(f"\n총 {len(all_jobs)}건 수집, {new_count}건 신규 저장")
-        return new_count
+        print(f"\n총 {len(jobs)}건 수집, {new_count}건 신규 저장")
     else:
         print("수집된 공고 없음")
-        return 0
+
+    return all_jobs
 
 
 def run_parse_resume(sheets: SheetsManager, file_path: str = None):
@@ -86,31 +86,40 @@ def run_parse_resume(sheets: SheetsManager, file_path: str = None):
         print("파싱된 이력서 데이터 없음")
 
 
-def run_match(sheets: SheetsManager):
-    """매칭 및 알림 실행"""
+def run_match(sheets: SheetsManager, jobs: list[dict] = None):
+    """
+    매칭 및 알림 실행.
+    jobs 인자가 있으면 해당 공고로 매칭 (Full pipeline용).
+    없으면 시트에서 '신규' 상태 공고를 읽어 매칭 (--match-only용).
+    """
     print(f"\n{'='*50}")
     print(f"매칭 엔진 실행")
     print(f"{'='*50}")
 
-    jobs = sheets.get_all_jobs()
     resume_data = sheets.get_resume_data()
-
-    if not jobs:
-        print("채용공고 데이터가 없습니다. 먼저 크롤링을 실행하세요.")
-        return
     if not resume_data:
         print("이력서 데이터가 없습니다. 먼저 이력서를 파싱하세요.")
         return
 
-    new_jobs = [j for j in jobs if j.get("상태") == "신규"]
-    print(f"  전체 공고: {len(jobs)}건, 신규 공고: {len(new_jobs)}건")
+    if jobs is not None:
+        # Full pipeline: 크롤링된 공고 전체 대상
+        target_jobs = jobs
+        print(f"  크롤링 공고 {len(target_jobs)}건 대상 매칭")
+    else:
+        # --match-only: 시트의 신규 공고만 대상
+        all_sheet_jobs = sheets.get_all_jobs()
+        if not all_sheet_jobs:
+            print("채용공고 데이터가 없습니다. 먼저 크롤링을 실행하세요.")
+            return
+        target_jobs = [j for j in all_sheet_jobs if j.get("상태") == "신규"]
+        print(f"  전체 공고: {len(all_sheet_jobs)}건, 신규 공고: {len(target_jobs)}건")
 
-    if not new_jobs:
-        print("새로운 공고가 없습니다.")
+    if not target_jobs:
+        print("매칭할 공고가 없습니다.")
         return
 
     matcher = JobMatcher()
-    matches = matcher.match(resume_data, new_jobs)
+    matches = matcher.match(resume_data, target_jobs)
     print(f"  매칭 결과: {len(matches)}건 (threshold: {Config.MATCH_THRESHOLD})")
 
     if matches:
@@ -143,8 +152,9 @@ def main():
     elif args.parse_resume is not None:
         run_parse_resume(sheets, args.parse_resume or None)
     else:
-        run_crawl(sheets)
-        run_match(sheets)
+        # Full pipeline: 크롤링 후 수집된 공고 바로 매칭
+        crawled_jobs = run_crawl(sheets)
+        run_match(sheets, jobs=crawled_jobs)
 
     print(f"\n[{datetime.now()}] 실행 완료")
 
