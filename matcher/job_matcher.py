@@ -197,10 +197,8 @@ class JobMatcher:
         elif is_unreal_job:
             unreal_score = 0.7
             reasons.append("🎮 Unreal/Unity 복합 공고")
-        elif is_unity_job:
-            unreal_score = 0.5   # C#/Unity 보유로 기본 점수
         else:
-            unreal_score = 0.3
+            unreal_score = 0.0  # Unity 전용 또는 무관 공고 — Unreal 보너스 없음
         breakdown["Unreal보너스"] = round(unreal_score, 3)
 
         # ③ 게임업계 공고 여부 (10%) ─────────────────
