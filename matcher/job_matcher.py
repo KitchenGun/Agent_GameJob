@@ -4,143 +4,329 @@ from sklearn.metrics.pairwise import cosine_similarity
 from config import Config
 
 
+# ─────────────────────────────────────────────────────
+# 사용자 프로필 (이력서/경력기술서 기반)
+# ─────────────────────────────────────────────────────
+
+_USER_SKILLS = {
+    "languages": ["c++", "c#", "verse", "lua", "blueprint"],
+    "engines":   ["unreal", "ue4", "ue5", "uefn", "unity"],
+    "tools":     ["git", "github", "svn", "perforce"],
+    "graphics":  ["directx", "opengl", "hlsl", "shader", "셰이더", "렌더링"],
+}
+
+# 사용자 포트폴리오 프로젝트
+_USER_PROJECTS = [
+    {
+        "name": "ShipmentGunGame (UEFN)",
+        "engine": "unreal",
+        "genre_keywords": [
+            "fps", "슈터", "shooter", "배틀로얄", "battle", "gunplay", "건플레이", "총기",
+        ],
+        "platform_keywords": ["pc", "console", "콘솔", "포트나이트", "fortnite"],
+        "feature_keywords":  ["멀티플레이", "multiplayer", "온라인", "네트워크", "pvp"],
+    },
+    {
+        "name": "골목길",
+        "engine": "unreal",
+        "genre_keywords": ["action", "액션", "adventure", "어드벤처", "rpg", "3d"],
+        "platform_keywords": ["pc", "콘솔"],
+        "feature_keywords":  ["싱글플레이", "single"],
+    },
+    {
+        "name": "ChairForce",
+        "engine": "unreal",
+        "genre_keywords": ["전략", "strategy", "시뮬레이션", "simulation", "rts"],
+        "platform_keywords": ["pc"],
+        "feature_keywords":  [],
+    },
+    {
+        "name": "ForbiddenArt",
+        "engine": "unreal",
+        "genre_keywords": ["아트", "interactive", "인터랙티브", "art", "비주얼"],
+        "platform_keywords": ["pc"],
+        "feature_keywords":  [],
+    },
+]
+
+# Unreal 관련 키워드
+_UNREAL_KEYWORDS = ["unreal", "ue4", "ue5", "uefn", "언리얼"]
+# Unity 관련 키워드
+_UNITY_KEYWORDS  = ["unity", "유니티"]
+
+# 점수 가중치
+_WEIGHTS = {
+    "기술스택":    0.30,
+    "Unreal보너스": 0.10,
+    "프로젝트경험": 0.15,
+    "경력조건":    0.15,
+    "내용유사도":  0.15,
+    "직무키워드":  0.15,
+}
+
+# 공고에서 탐지할 기술 키워드 목록 (요건 비교용)
+_TECH_KEYWORDS = [
+    "c++", "c#", "python", "java", "lua", "verse", "blueprint", "typescript",
+    "unreal", "ue4", "ue5", "uefn", "unity", "godot",
+    "directx", "opengl", "vulkan", "metal", "hlsl", "shader", "셰이더",
+    "git", "svn", "perforce", "github",
+    "멀티플레이", "네트워크", "렌더링", "물리엔진", "ai", "pathfinding",
+    "android", "ios", "console", "콘솔",
+]
+
+
 class JobMatcher:
     """이력서와 채용공고의 적합도를 계산하는 매칭 엔진"""
 
     def __init__(self):
         self.threshold = Config.MATCH_THRESHOLD
+        # 평탄화된 사용자 스킬 목록
+        self._all_user_skills: list[str] = list(
+            {skill for group in _USER_SKILLS.values() for skill in group}
+        )
 
     def match(self, resume_data: dict, jobs: list[dict]) -> list[dict]:
         """
         이력서 데이터와 채용공고 리스트를 비교하여
         적합도가 threshold 이상인 공고를 반환
 
-        반환값: [{"job": dict, "score": float, "reasons": list}, ...]
+        반환값: [{"job": dict, "score": float, "breakdown": dict, "reasons": list}, ...]
         """
         resume_text = self._build_resume_text(resume_data)
         if not resume_text.strip():
             print("이력서 데이터가 비어있습니다.")
             return []
 
+        # 이력서 데이터에서 기술스택 보강
+        resume_skills = self._extract_resume_skills(resume_data)
+
         matched = []
         for job in jobs:
-            score, reasons = self._calculate_score(resume_data, job, resume_text)
+            score, breakdown, reasons = self._calculate_score(
+                resume_data, job, resume_text, resume_skills
+            )
             if score >= self.threshold:
                 matched.append({
-                    "job": job,
-                    "score": round(score, 3),
-                    "reasons": reasons,
+                    "job":       job,
+                    "score":     round(score, 3),
+                    "breakdown": breakdown,
+                    "reasons":   reasons,
                 })
 
         matched.sort(key=lambda x: x["score"], reverse=True)
         return matched
 
+    # ──────────────────────────────────────────────────
+    # private
+    # ──────────────────────────────────────────────────
+
     def _build_resume_text(self, resume_data: dict) -> str:
-        """이력서 데이터를 하나의 텍스트로 변환"""
         parts = []
-        for key, value in resume_data.items():
+        for value in resume_data.values():
             if isinstance(value, list):
                 parts.append(" ".join(value))
             elif isinstance(value, str):
                 parts.append(value)
         return " ".join(parts)
 
+    def _extract_resume_skills(self, resume_data: dict) -> list[str]:
+        """이력서 데이터의 기술스택 키에서 추가 스킬 추출"""
+        extra: set[str] = set()
+        for key, val in resume_data.items():
+            if key.startswith("기술스택_"):
+                if isinstance(val, list):
+                    extra.update(s.lower() for s in val)
+                elif isinstance(val, str):
+                    extra.update(s.strip().lower() for s in val.split(","))
+        return list(extra | set(self._all_user_skills))
+
     def _calculate_score(
-        self, resume_data: dict, job: dict, resume_text: str
-    ) -> tuple[float, list[str]]:
+        self,
+        resume_data: dict,
+        job: dict,
+        resume_text: str,
+        user_skills: list[str],
+    ) -> tuple[float, dict, list[str]]:
         """
         종합 매칭 점수 계산
 
         가중치:
-        - 기술스택 매칭: 40%
-        - TF-IDF 코사인 유사도: 30%
-        - 경력 조건 부합: 20%
-        - 직무 키워드 매칭: 10%
+        - 기술스택 매칭:    30%
+        - Unreal 보너스:    10%
+        - 프로젝트 경험:    15%
+        - 경력 조건:        15%
+        - TF-IDF 유사도:    15%
+        - 직무 키워드:      15%
         """
-        reasons = []
-        scores = {}
+        reasons: list[str] = []
+        breakdown: dict[str, float] = {}
 
-        # ① 기술스택 키워드 매칭 (40%)
-        resume_skills = set()
-        for key in resume_data:
-            if key.startswith("기술스택_"):
-                val = resume_data[key]
-                if isinstance(val, list):
-                    resume_skills.update(s.lower() for s in val)
-                elif isinstance(val, str):
-                    resume_skills.update(s.strip().lower() for s in val.split(","))
-
-        job_skills_text = (
-            job.get("skills", "") + " " +
-            job.get("title", "") + " " +
-            job.get("position", "")
+        # ── 공고 텍스트 구성 ──────────────────────────
+        job_text_full = " ".join(
+            str(v) for v in job.values() if v and str(v).strip()
         ).lower()
 
-        if resume_skills:
-            matched_skills = [s for s in resume_skills if s in job_skills_text]
-            skill_score = len(matched_skills) / max(len(resume_skills), 1)
-            scores["skills"] = min(skill_score * 1.5, 1.0)
-            if matched_skills:
-                reasons.append(f"기술 매칭: {', '.join(matched_skills)}")
+        job_title_text = (
+            (job.get("title") or job.get("제목", "")) + " " +
+            (job.get("position") or job.get("직무", ""))
+        ).lower()
+
+        # ① 기술스택 매칭 (30%) ───────────────────────
+        matched_skills = [s for s in user_skills if s and s in job_text_full]
+        skill_ratio = len(matched_skills) / max(len(user_skills) * 0.4, 1)
+        skill_score = min(skill_ratio, 1.0)
+        breakdown["기술스택"] = round(skill_score, 3)
+        if matched_skills:
+            reasons.append(f"🔧 기술 매칭: {', '.join(matched_skills[:8])}")
+
+        # ② Unreal 보너스 (10%) ───────────────────────
+        is_unreal_job = any(kw in job_text_full for kw in _UNREAL_KEYWORDS)
+        is_unity_job  = any(kw in job_text_full for kw in _UNITY_KEYWORDS)
+
+        if is_unreal_job and not is_unity_job:
+            unreal_score = 1.0
+            reasons.append("🎮 Unreal 전용 공고 — Unreal 우선 매칭 적용")
+        elif is_unreal_job:
+            unreal_score = 0.7
+            reasons.append("🎮 Unreal/Unity 복합 공고")
+        elif is_unity_job:
+            unreal_score = 0.5   # C#/Unity 보유로 기본 점수
         else:
-            scores["skills"] = 0
+            unreal_score = 0.3
+        breakdown["Unreal보너스"] = round(unreal_score, 3)
 
-        # ② TF-IDF 코사인 유사도 (30%)
-        job_text = " ".join(str(v) for v in job.values() if v)
-        try:
-            vectorizer = TfidfVectorizer()
-            tfidf_matrix = vectorizer.fit_transform([resume_text, job_text])
-            similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-            scores["tfidf"] = similarity
-            if similarity > 0.3:
-                reasons.append(f"내용 유사도: {similarity:.0%}")
-        except Exception:
-            scores["tfidf"] = 0
+        # ③ 프로젝트 경험 매칭 (15%) ──────────────────
+        proj_score, proj_reasons = self._match_projects(job_text_full)
+        breakdown["프로젝트경험"] = round(proj_score, 3)
+        reasons.extend(proj_reasons)
 
-        # ③ 경력 조건 매칭 (20%)
-        scores["experience"] = self._match_experience(
+        # ④ 경력 조건 매칭 (15%) ──────────────────────
+        exp_score = self._match_experience(
             resume_data.get("총경력년수", ""),
-            job.get("experience", ""),
+            job.get("experience") or job.get("경력요건", ""),
         )
-        if scores["experience"] > 0.5:
-            reasons.append("경력 조건 부합")
+        breakdown["경력조건"] = round(exp_score, 3)
+        resume_yr_list = re.findall(r"\d+", resume_data.get("총경력년수", ""))
+        job_exp_str = job.get("experience") or job.get("경력요건", "미상")
+        r_yr_label = resume_yr_list[0] + "년" if resume_yr_list else "미기재"
+        if exp_score >= 0.7:
+            reasons.append(f"📅 경력 조건 충족: 보유 {r_yr_label} → 요구 {job_exp_str}")
+        elif exp_score < 0.5:
+            reasons.append(f"⚠️ 경력 미달 가능성: 보유 {r_yr_label} → 요구 {job_exp_str}")
 
-        # ④ 직무 키워드 매칭 (10%)
-        job_title = job.get("title", "").lower()
-        position_keywords = ["게임", "프로그래머", "개발자", "엔지니어"]
-        title_match = sum(1 for kw in position_keywords if kw in job_title)
-        scores["title"] = min(title_match / 2, 1.0)
-        if title_match >= 2:
-            reasons.append("직무명 매칭")
+        # ⑤ TF-IDF 코사인 유사도 (15%) ───────────────
+        job_text_raw = " ".join(str(v) for v in job.values() if v and str(v).strip())
+        try:
+            vec = TfidfVectorizer()
+            mat = vec.fit_transform([resume_text, job_text_raw])
+            tfidf_score = float(cosine_similarity(mat[0:1], mat[1:2])[0][0])
+        except Exception:
+            tfidf_score = 0.0
+        breakdown["내용유사도"] = round(tfidf_score, 3)
+        if tfidf_score > 0.3:
+            reasons.append(f"📄 전체 내용 유사도: {tfidf_score:.0%}")
 
-        final_score = (
-            scores["skills"] * 0.4
-            + scores["tfidf"] * 0.3
-            + scores["experience"] * 0.2
-            + scores["title"] * 0.1
+        # ⑥ 직무 키워드 매칭 (15%) ───────────────────
+        pos_keywords = ["게임", "프로그래머", "개발자", "클라이언트", "엔진", "언리얼", "unity", "유니티"]
+        title_hits = [kw for kw in pos_keywords if kw in job_title_text]
+        title_score = min(len(title_hits) / 3, 1.0)
+        breakdown["직무키워드"] = round(title_score, 3)
+        if title_hits:
+            reasons.append(f"🏷️ 직무 키워드: {', '.join(title_hits)}")
+
+        # ── 최종 점수 합산 ────────────────────────────
+        final_score = sum(
+            breakdown[k] * _WEIGHTS[k] for k in _WEIGHTS
         )
+        breakdown["최종점수"] = round(final_score, 3)
 
-        return final_score, reasons
+        # ── 요건 비교 (담당업무/자격요건/우대사항) ────
+        req_reasons = self._compare_requirements(job_text_full, user_skills)
+        reasons.extend(req_reasons)
+
+        return final_score, breakdown, reasons
+
+    def _match_projects(self, job_text: str) -> tuple[float, list[str]]:
+        """사용자 프로젝트 포트폴리오와 공고 매칭"""
+        best_score = 0.0
+        best_reasons: list[str] = []
+
+        for proj in _USER_PROJECTS:
+            score = 0.0
+            hits: list[str] = []
+
+            # 엔진 매칭 (0.4)
+            engine_kw = proj["engine"]
+            if engine_kw in job_text or (engine_kw == "unreal" and "언리얼" in job_text):
+                score += 0.4
+                hits.append(engine_kw.upper())
+
+            # 장르 매칭 (0.3)
+            for kw in proj["genre_keywords"]:
+                if kw in job_text:
+                    score += 0.3
+                    hits.append(kw)
+                    break
+
+            # 플랫폼 매칭 (0.15)
+            for kw in proj["platform_keywords"]:
+                if kw in job_text:
+                    score += 0.15
+                    break
+
+            # 기능 매칭 — 멀티플레이 등 (0.15)
+            for kw in proj["feature_keywords"]:
+                if kw in job_text:
+                    score += 0.15
+                    hits.append(kw)
+                    break
+
+            score = min(score, 1.0)
+            if score > best_score:
+                best_score = score
+                best_reasons = (
+                    [f"🗂️ 프로젝트 경험: {proj['name']} ({', '.join(hits)})"]
+                    if hits else []
+                )
+
+        return best_score, best_reasons
+
+    def _compare_requirements(
+        self, job_text: str, user_skills: list[str]
+    ) -> list[str]:
+        """담당업무/자격요건/우대사항 키워드와 이력서 비교"""
+        job_techs = [kw for kw in _TECH_KEYWORDS if kw in job_text]
+        if not job_techs:
+            return []
+
+        has   = [t for t in job_techs if t in user_skills]
+        lacks = [t for t in job_techs if t not in user_skills]
+
+        out: list[str] = []
+        if has:
+            out.append(f"✅ 요건 보유 기술: {', '.join(has[:6])}")
+        if lacks:
+            out.append(f"📌 요건 미보유 기술: {', '.join(lacks[:4])}")
+        return out
 
     def _match_experience(self, resume_exp: str, job_exp: str) -> float:
         """경력 조건 매칭 점수"""
         if not job_exp:
             return 0.5
-
         if "신입" in job_exp and ("신입" in resume_exp or not resume_exp):
             return 1.0
         if "무관" in job_exp:
             return 1.0
 
         resume_years = re.findall(r"(\d+)", resume_exp)
-        job_years = re.findall(r"(\d+)", job_exp)
+        job_years    = re.findall(r"(\d+)", job_exp)
 
         if resume_years and job_years:
-            r_years = int(resume_years[0])
-            j_years = int(job_years[0])
-            if r_years >= j_years:
+            r = int(resume_years[0])
+            j = int(job_years[0])
+            if r >= j:
                 return 1.0
-            elif r_years >= j_years - 1:
+            elif r >= j - 1:
                 return 0.7
             else:
                 return 0.3
