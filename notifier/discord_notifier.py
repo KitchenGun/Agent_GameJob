@@ -110,7 +110,9 @@ class DiscordNotifier:
                 json=payload,
                 timeout=10,
             )
-            resp.raise_for_status()
+            if resp.status_code not in (200, 204):
+                print(f"  [Discord 오류] status={resp.status_code} body={resp.text[:300]}")
+                return
             msg_id = resp.json().get("id")
             if msg_id:
                 self._save_message_id(msg_id)
@@ -162,12 +164,10 @@ class DiscordNotifier:
             return "산정 정보 없음"
 
         weights = {
-            "기술스택":    0.30,
-            "경력조건":    0.25,
-            "직무키워드":  0.20,
-            "Unreal보너스": 0.10,
-            "프로젝트경험": 0.10,
-            "게임업계":    0.05,
+            "경력조건":    0.40,
+            "Unreal보너스": 0.25,
+            "기술스택":    0.25,
+            "게임업계":    0.10,
         }
         lines = []
         for key, w in weights.items():
