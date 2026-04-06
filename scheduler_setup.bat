@@ -1,32 +1,33 @@
 @echo off
 chcp 65001 > nul
 
-echo [GameJobAgent] Registering Windows Task Scheduler...
-echo Project path: %~dp0
-
 set "PROJECT_DIR=%~dp0"
-set "PS_TEMP=%PROJECT_DIR%_sched_temp.ps1"
 set "BAT_FILE=%PROJECT_DIR%run_agent.bat"
+set "TASK_NAME=GameJobAgent"
 
-(
-  echo $action  = New-ScheduledTaskAction -Execute '"%BAT_FILE%"' -WorkingDirectory '"%PROJECT_DIR%"'
-  echo $trigger = New-ScheduledTaskTrigger -Once -At "09:00" -RepetitionInterval ^(New-TimeSpan -Hours 6^) -RepetitionDuration ^(New-TimeSpan -Days 3650^)
-  echo $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ^(New-TimeSpan -Hours 2^) -RestartCount 3 -RestartInterval ^(New-TimeSpan -Minutes 10^) -WakeToRun:$true
-  echo Register-ScheduledTask -TaskName "GameJobAgent" -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force
-) > "%PS_TEMP%"
+echo [GameJobAgent] Registering scheduled task via schtasks...
+echo Project path: %PROJECT_DIR%
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PS_TEMP%"
+schtasks /create ^
+  /tn "%TASK_NAME%" ^
+  /tr "\"%BAT_FILE%\"" ^
+  /sc HOURLY ^
+  /mo 6 ^
+  /st 09:00 ^
+  /f
 
 if %errorlevel% equ 0 (
     echo.
     echo [OK] Task registered successfully!
-    echo   - Task name : GameJobAgent
+    echo   - Task name : %TASK_NAME%
     echo   - Interval  : every 6 hours ^(starting 09:00^)
     echo   - Script    : %BAT_FILE%
+    echo.
+    echo To verify: schtasks /query /tn "%TASK_NAME%"
+    echo To delete: schtasks /delete /tn "%TASK_NAME%" /f
 ) else (
     echo.
-    echo [ERROR] Registration failed. Please run as Administrator.
+    echo [ERROR] Registration failed. Try running as Administrator.
 )
 
-del "%PS_TEMP%" > nul 2>&1
 pause

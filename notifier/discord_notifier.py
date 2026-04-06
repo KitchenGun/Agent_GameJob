@@ -41,7 +41,9 @@ class DiscordNotifier:
         }
         self._send_and_track(header)
 
-        for i, match in enumerate(matches, 1):
+        total = len(matches)
+        for idx, match in enumerate(reversed(matches)):
+            i = total - idx  # #30 먼저 전송 → #1 마지막(Discord 최하단)
             job       = match["job"]
             score     = match["score"]
             reasons   = match.get("reasons", [])
