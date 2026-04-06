@@ -26,6 +26,10 @@ def run_crawl(sheets: SheetsManager) -> list[dict]:
     print(f"[{datetime.now()}] 크롤링 시작")
     print(f"{'='*50}")
 
+    # 매 실행마다 시트 초기화 (항상 최신 공고만 유지)
+    print("  이전 공고 데이터 초기화 중...")
+    sheets.reset_jobs()
+
     all_jobs = []
 
     print("\n[1/2] 게임잡 크롤링 중...")

@@ -27,6 +27,24 @@ class SheetsManager:
                 ws.update("A1", [headers])
         return ws
 
+    def reset_jobs(self):
+        """채용공고 시트 초기화 (헤더 유지, 데이터 전체 삭제)"""
+        ws = self.get_or_create_worksheet(
+            "채용공고_로우데이터",
+            headers=[
+                "공고ID", "사이트", "회사명", "제목", "직무",
+                "경력요건", "기술스택", "학력", "근무지역",
+                "급여", "마감일", "공고URL", "수집일시", "상태"
+            ],
+        )
+        ws.clear()
+        ws.update("A1", [[
+            "공고ID", "사이트", "회사명", "제목", "직무",
+            "경력요건", "기술스택", "학력", "근무지역",
+            "급여", "마감일", "공고URL", "수집일시", "상태"
+        ]])
+        print("  채용공고 시트 초기화 완료")
+
     def append_jobs(self, jobs: list[dict]):
         """채용공고 데이터를 시트에 추가 (중복 제거)"""
         ws = self.get_or_create_worksheet(
