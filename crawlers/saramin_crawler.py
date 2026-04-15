@@ -91,6 +91,9 @@ class SaraminCrawler(BaseCrawler):
                 date_el = item.select_one(".job_date .date")
                 job.deadline = date_el.get_text(strip=True) if date_el else ""
 
+                if self._is_closed_posting(job.deadline, item.get_text(" ", strip=True)):
+                    continue
+
                 if job.title:
                     jobs.append(job)
             except Exception as e:

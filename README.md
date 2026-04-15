@@ -1,11 +1,11 @@
 # 🎮 게임 프로그래머 취업 매칭 에이전트
 
-게임잡, 사람인, 잡코리아에서 채용공고를 자동 수집하고, 이력서와 매칭하여 Discord로 알림을 보내는 에이전트입니다.
+게임잡, 사람인, 잡코리아에서 채용공고를 자동 수집하고, 이력서/공고 로우데이터를 Hermes Agent에 넘겨 선별 및 Discord 전송을 수행하는 에이전트입니다.
 
 ## 아키텍처
 
 ```
-크롤러 (Playwright) → Google Sheets → 매칭 엔진 → Discord 알림
+크롤러 (Playwright) → Google Sheets → Hermes 요청 파일 생성 → Hermes Agent → Discord 알림
                                 ↑
                         이력서 파서 (PDF/DOCX)
 ```
@@ -33,8 +33,8 @@ copy .env.example .env
 |------|------|
 | `GOOGLE_CREDENTIALS_PATH` | Google 서비스 계정 JSON 경로 |
 | `SPREADSHEET_NAME` | Google Sheets 스프레드시트 이름 |
-| `DISCORD_WEBHOOK_URL` | Discord Webhook URL |
-| `MATCH_THRESHOLD` | 매칭 임계값 (0.0~1.0, 기본값 0.5) |
+| `DISCORD_WEBHOOK_URL` | (레거시) 기존 Python Discord 전송용 값 |
+| `HERMES_QUEUE_DIR` | Hermes 요청/응답 파일 큐 디렉터리 |
 
 ### 3. Google Sheets 설정
 
@@ -43,9 +43,11 @@ copy .env.example .env
 3. 서비스 계정 생성 → JSON 키 다운로드 → `data/credentials/service_account.json` 저장
 4. Google Sheets 생성 후 서비스 계정 이메일을 편집자로 공유
 
-### 4. Discord Webhook 생성
+### 4. Hermes Agent 연동
 
-Discord 채널 설정 → 연동 → 웹후크 → URL 복사 → `.env` 입력
+Python은 `HERMES_QUEUE_DIR` 아래에 요청 JSON을 생성합니다.
+Hermes Agent는 `requests/` 폴더를 감시해 공고를 분석하고 Discord 메시지를 직접 보낸 뒤,
+`responses/` 폴더에 처리 결과 JSON을 남기도록 구성합니다.
 
 ### 5. 이력서 등록
 
@@ -54,7 +56,7 @@ Discord 채널 설정 → 연동 → 웹후크 → URL 복사 → `.env` 입력
 ## 실행
 
 ```bash
-# 전체 파이프라인 (크롤링 → 매칭 → 알림)
+# 전체 파이프라인 (크롤링 → Hermes 작업 요청)
 python main.py
 
 # 크롤링만
@@ -63,7 +65,7 @@ python main.py --crawl-only
 # 이력서 파싱만
 python main.py --parse-resume
 
-# 매칭만
+# Hermes 작업 요청만
 python main.py --match-only
 ```
 
@@ -87,21 +89,22 @@ python main.py --match-only
 │   ├── saramin_crawler.py   # 사람인
 │   └── jobkorea_crawler.py  # 잡코리아
 ├── parsers/                 # 이력서 파서
-├── matcher/                 # 매칭 엔진 (TF-IDF + 키워드)
-├── notifier/                # Discord 알림
+├── agents/                  # Hermes Job management 요청 생성
+├── matcher/                 # 레거시 매칭 엔진
+├── notifier/                # 레거시 Discord 알림
 ├── sheets/                  # Google Sheets 연동
+├── skills/                  # skills.sh 호환 로컬 스킬 문서
 └── data/
     ├── resume/              # 이력서 파일 보관
-    └── credentials/         # Google API 인증 파일
+    ├── credentials/         # Google API 인증 파일
+    └── hermes_queue/        # Hermes 요청/응답 파일 큐
 ```
 
-## 매칭 점수 기준
+## Hermes 요청 파일 예시 흐름
 
-| 항목 | 가중치 |
-|------|--------|
-| 기술스택 키워드 매칭 | 40% |
-| TF-IDF 코사인 유사도 | 30% |
-| 경력 조건 부합 | 20% |
-| 직무명 키워드 | 10% |
+1. Python이 `data/hermes_queue/requests/job_management_request_*.json` 생성
+2. Hermes Agent가 이력서/공고 로우데이터를 읽고 공고 선별
+3. Hermes Agent가 Discord 메시지 직접 전송
+4. Hermes Agent가 `data/hermes_queue/responses/job_management_response_*.json` 기록
 
-`MATCH_THRESHOLD` 값(기본 0.5)을 조정하여 알림 민감도를 변경할 수 있습니다.
+기존 Python 내부 점수식/threshold/top-N 방식은 더 이상 Stage 2의 기준이 아닙니다.

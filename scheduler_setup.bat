@@ -3,14 +3,27 @@ chcp 65001 > nul
 
 set "PROJECT_DIR=%~dp0"
 set "TASK_NAME=GameJobAgent"
-set "PY_CMD=py -3 \"%PROJECT_DIR%main.py\""
+set "BATCH_CMD=%PROJECT_DIR%run_scheduled.bat"
 
-echo [GameJobAgent] Registering scheduled task via schtasks...
-echo Project path: %PROJECT_DIR%
+echo.
+echo ========================================
+echo  GameJobAgent - Task Scheduler Setup
+echo ========================================
+echo.
+echo   Project path : %PROJECT_DIR%
+echo   Batch file   : run_scheduled.bat
+echo   Schedule     : Every 6 hours (starting 09:00)
+echo.
 
+REM 기존 작업 제거 (존재하면)
+echo [INFO] Removing existing task (if any)...
+schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
+
+REM 새 작업 등록
+echo [INFO] Registering new scheduled task...
 schtasks /create ^
   /tn "%TASK_NAME%" ^
-  /tr "%PY_CMD%" ^
+  /tr "\"%BATCH_CMD%\"" ^
   /sc HOURLY ^
   /mo 6 ^
   /st 09:00 ^
@@ -18,13 +31,19 @@ schtasks /create ^
 
 if %errorlevel% equ 0 (
     echo.
-    echo [OK] Task registered successfully!
-    echo   - Task name : %TASK_NAME%
-    echo   - Interval  : every 6 hours ^(starting 09:00^)
-    echo   - Script    : %PY_CMD%
+    echo ========================================
+    echo  [OK] Task registered successfully!
+    echo ========================================
     echo.
-    echo To verify: schtasks /query /tn "%TASK_NAME%"
-    echo To delete: schtasks /delete /tn "%TASK_NAME%" /f
+    echo   - Task name : %TASK_NAME%
+    echo   - Execute   : run_scheduled.bat (venv + full pipeline)
+    echo   - Interval  : every 6 hours
+    echo   - Schedule  : 09:00, 15:00, 21:00, 03:00
+    echo   - Logging   : logs\scheduled_*.log
+    echo.
+    echo To verify : schtasks /query /tn "%TASK_NAME%"
+    echo To run now: schtasks /run /tn "%TASK_NAME%"
+    echo To delete : schtasks /delete /tn "%TASK_NAME%" /f
 ) else (
     echo.
     echo [ERROR] Registration failed. Try running as Administrator.

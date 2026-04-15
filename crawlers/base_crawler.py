@@ -40,6 +40,17 @@ class JobPosting:
 class BaseCrawler(ABC):
     """크롤러 베이스 클래스"""
 
+    CLOSED_MARKERS = (
+        "접수마감",
+        "모집마감",
+        "채용마감",
+        "채용 종료",
+        "채용종료",
+        "마감됨",
+        "공고마감",
+        "closed",
+    )
+
     def __init__(self):
         self.jobs: list[JobPosting] = []
 
@@ -65,3 +76,16 @@ class BaseCrawler(ABC):
             locale="ko-KR",
         )
         return browser, context
+
+    def _is_closed_posting(self, *texts: str) -> bool:
+        """마감된 공고 여부 판별"""
+        normalized = " ".join(
+            str(text).strip().lower() for text in texts if text and str(text).strip()
+        )
+        if not normalized:
+            return False
+
+        if "채용시" in normalized or "상시" in normalized:
+            return False
+
+        return any(marker in normalized for marker in self.CLOSED_MARKERS)

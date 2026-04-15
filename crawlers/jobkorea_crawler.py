@@ -136,6 +136,9 @@ class JobKoreaCrawler(BaseCrawler):
                         elif not job.skills:
                             job.skills = text
 
+                    if self._is_closed_posting(" ".join(chip_texts), container.get_text(" ", strip=True)):
+                        continue
+
                 if job.title and self._is_game_job(job.title):
                     jobs.append(job)
                 elif job.title:

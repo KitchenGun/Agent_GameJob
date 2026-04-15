@@ -123,6 +123,13 @@ class SheetsManager:
         ws = self.get_or_create_worksheet("채용공고_로우데이터")
         return self._ws_to_records(ws)
 
+    def get_jobs_by_status(self, status: str) -> list[dict]:
+        """특정 상태의 채용공고만 반환"""
+        return [
+            row for row in self.get_all_jobs()
+            if (row.get("상태") or "").strip() == status
+        ]
+
     def get_resume_data(self):
         """이력서 로우데이터 반환"""
         ws = self.get_or_create_worksheet("이력서_로우데이터")

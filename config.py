@@ -9,8 +9,14 @@ class Config:
     GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH")
     SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "게임프로그래머_채용공고")
 
-    # Discord
+    # Discord (deprecated: Hermes Agent가 직접 전송)
     DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+
+    # Hermes Agent file queue
+    HERMES_QUEUE_DIR = os.getenv("HERMES_QUEUE_DIR", "data/hermes_queue")
+    HERMES_RESPONSE_TIMEOUT_SECONDS = int(
+        os.getenv("HERMES_RESPONSE_TIMEOUT_SECONDS", 0)
+    )
 
     # 크롤링
     CRAWL_INTERVAL_HOURS = int(os.getenv("CRAWL_INTERVAL_HOURS", 6))

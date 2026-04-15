@@ -150,4 +150,7 @@ class GameJobCrawler(BaseCrawler):
             date_el = tds[2].select_one("span.date")
             job.deadline = date_el.get_text(strip=True) if date_el else ""
 
+        if self._is_closed_posting(job.deadline, row.get_text(" ", strip=True)):
+            return None
+
         return job if job.title else None

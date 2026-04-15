@@ -16,8 +16,7 @@ from sheets.sheets_manager import SheetsManager
 from crawlers.gamejob_crawler import GameJobCrawler
 from crawlers.jobkorea_crawler import JobKoreaCrawler
 from parsers.resume_parser import ResumeParser
-from matcher.job_matcher import JobMatcher
-from notifier.discord_notifier import DiscordNotifier
+from agents.job_management_agent import JobManagementAgent
 
 
 def run_crawl(sheets: SheetsManager) -> list[dict]:
@@ -90,76 +89,25 @@ def run_parse_resume(sheets: SheetsManager, file_path: str = None):
         print("파싱된 이력서 데이터 없음")
 
 
-# Unity 전용 공고 판별 키워드 (Unreal 없이 Unity만 있으면 제외)
-_UNITY_ONLY_KEYWORDS = ["unity", "유니티", "c#"]
-_UNREAL_KEYWORDS     = ["unreal", "ue4", "ue5", "uefn", "언리얼"]
-
-
-def _is_unity_only(job: dict) -> bool:
-    """Unity 전용 공고 여부 판별 (Unreal 키워드 없이 Unity 키워드만 있으면 True)"""
-    text = " ".join(
-        str(v) for v in job.values() if v and str(v).strip()
-    ).lower()
-    has_unreal = any(kw in text for kw in _UNREAL_KEYWORDS)
-    has_unity  = any(kw in text for kw in _UNITY_ONLY_KEYWORDS)
-    return has_unity and not has_unreal
-
-
 def run_match(sheets: SheetsManager, jobs: list[dict] = None):
     """
-    매칭 및 알림 실행.
-    jobs 인자가 있으면 해당 공고로 매칭 (Full pipeline용).
-    없으면 시트에서 '신규' 상태 공고를 읽어 매칭 (--match-only용).
-    Full pipeline은 threshold 무관하게 상위 결과를 항상 Discord 전송.
+    Hermes 기반 Job management 요청 생성.
+    jobs 인자가 있으면 해당 공고를 요청 payload에 포함 (Full pipeline용).
+    없으면 시트의 '신규' 상태 공고만 Hermes Agent에 전달 (--match-only용).
     """
     print(f"\n{'='*50}")
-    print(f"매칭 엔진 실행")
+    print(f"Hermes Job management 요청 생성")
     print(f"{'='*50}")
 
-    resume_data = sheets.get_resume_data()
-    if not resume_data:
-        print("이력서 데이터가 없습니다. 먼저 이력서를 파싱하세요.")
+    agent = JobManagementAgent(sheets)
+    request = agent.request_job_management(jobs=jobs)
+    if request is None:
         return
 
-    if jobs is not None:
-        # Full pipeline: 크롤링된 공고 전체 대상
-        before = len(jobs)
-        target_jobs = [j for j in jobs if not _is_unity_only(j)]
-        print(f"  크롤링 공고 {before}건 → Unity 전용 제외 후 {len(target_jobs)}건 매칭")
-    else:
-        # --match-only: 시트의 신규 공고만 대상
-        all_sheet_jobs = sheets.get_all_jobs()
-        if not all_sheet_jobs:
-            print("채용공고 데이터가 없습니다. 먼저 크롤링을 실행하세요.")
-            return
-        before = len(all_sheet_jobs)
-        target_jobs = [j for j in all_sheet_jobs if not _is_unity_only(j)]
-        print(f"  전체 공고: {before}건 → Unity 제외 후 {len(target_jobs)}건")
-
-    if not target_jobs:
-        print("매칭할 공고가 없습니다.")
-        return
-
-    matcher = JobMatcher()
-
-    if jobs is not None:
-        # Full pipeline: threshold=0으로 전체 점수 산출 후 상위 30건 전송
-        all_matches = matcher.match_all(resume_data, target_jobs)
-        matches = all_matches[:30]
-        print(f"  전체 점수 산출: {len(all_matches)}건 → 상위 {len(matches)}건 Discord 전송")
-    else:
-        matches = matcher.match(resume_data, target_jobs)
-        print(f"  매칭 결과: {len(matches)}건 (threshold: {Config.MATCH_THRESHOLD})")
-
-    notifier = DiscordNotifier()
-    notifier.send_matches(matches)
-    print("Discord 알림 전송 완료")
-
-    job_ids = [
-        match["job"].get("공고ID") or match["job"].get("job_id", "")
-        for match in matches
-    ]
-    sheets.bulk_update_job_status([jid for jid in job_ids if jid], "알림완료")
+    print(f"Hermes Agent 요청 완료: {request.request_id}")
+    print(f"대상 공고 수: {len(request.requested_job_ids)}")
+    print(f"요청 파일: {request.request_file}")
+    print("Discord 전송은 Hermes Agent가 처리합니다.")
 
 
 def main():
